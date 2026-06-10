@@ -3,6 +3,7 @@ package org.jenkinsci.plugins.buildwithparameters;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
+import hudson.model.FileParameterDefinition;
 import hudson.model.ParameterValue;
 import hudson.model.FreeStyleProject;
 import hudson.model.ParameterDefinition;
@@ -14,6 +15,8 @@ import hudson.model.StringParameterDefinition;
 import hudson.model.StringParameterValue;
 
 import java.io.IOException;
+import java.io.File;
+import java.nio.file.Files;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,6 +46,26 @@ class BuildWithParametersActionTest {
 
         BuildParameter pwParameter = (BuildParameter) bwpa.getAvailableParameters().get(0);
         assertSame(BuildParameterType.PASSWORD, pwParameter.getType());
+    }
+
+    @Test
+    void getAvailableParameters_fileParam() throws IOException {
+        ParameterDefinition fileParamDef = new FileParameterDefinition("upload", "d");
+        BuildWithParametersAction bwpa = testableProject(fileParamDef);
+
+        BuildParameter fileParameter = (BuildParameter) bwpa.getAvailableParameters().get(0);
+        assertSame(BuildParameterType.FILE, fileParameter.getType());
+    }
+
+    @Test
+    void getAvailableParameters_fileParamWithoutRequest() throws Exception {
+        FreeStyleProject project = j.createFreeStyleProject();
+        project.addProperty(new ParametersDefinitionProperty(new FileParameterDefinition("upload", "d")));
+
+        BuildWithParametersAction bwpa = new BuildWithParametersAction(project);
+
+        BuildParameter fileParameter = (BuildParameter) bwpa.getAvailableParameters().get(0);
+        assertSame(BuildParameterType.FILE, fileParameter.getType());
     }
 
     private BuildWithParametersAction testableProject(
@@ -113,5 +136,41 @@ class BuildWithParametersActionTest {
         final ParametersAction parameterAction = project.getLastBuild().getAction(ParametersAction.class);
         final String actualValue = ((StringParameterValue) parameterAction.getParameter("param")).value;
         assertEquals("newValue", actualValue);
+    }
+
+    @Test
+    void provideFileParameterViaUi() throws Exception {
+        FreeStyleProject project = j.createFreeStyleProject();
+        FileParameterDefinition fileParam = new FileParameterDefinition("upload", "d");
+        project.addProperty(new ParametersDefinitionProperty(fileParam));
+
+        WebClient wc = j.createWebClient();
+        HtmlPage page = wc.getPage(project, "parambuild");
+        HtmlForm form = page.getFormByName("config");
+
+        // Create a temporary file to upload
+        File testFile = File.createTempFile("test", ".txt");
+        testFile.deleteOnExit();
+        Files.write(testFile.toPath(), "test content".getBytes());
+
+        // Upload the file
+        form.getInputByName("upload").setValueAttribute(testFile.getAbsolutePath());
+
+        // Submit the form
+        HtmlFormUtil.getButtonByCaption(form, "Build").click();
+        // Create fake submit in case button click doesn't work
+        DomElement fakeSubmit = page.createElement("button");
+        fakeSubmit.setAttribute("type", "submit");
+        form.appendChild(fakeSubmit);
+        fakeSubmit.click();
+
+        // Wait for build to complete
+        do {
+            Thread.sleep(100);
+        } while (project.getLastBuild() == null);
+
+        // Verify file parameter was captured
+        final ParametersAction parameterAction = project.getLastBuild().getAction(ParametersAction.class);
+        assertEquals("FileParameterValue", parameterAction.getParameter("upload").getClass().getSimpleName());
     }
 }
