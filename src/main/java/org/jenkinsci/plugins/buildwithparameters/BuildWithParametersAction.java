@@ -7,6 +7,8 @@ import hudson.model.BuildableItem;
 import hudson.model.Cause;
 import hudson.model.CauseAction;
 import hudson.model.ChoiceParameterDefinition;
+import hudson.model.FileParameterDefinition;
+import hudson.model.FileParameterValue;
 import hudson.model.Job;
 import hudson.model.ParameterDefinition;
 import hudson.model.ParameterValue;
@@ -52,26 +54,31 @@ public class BuildWithParametersAction<T extends Job<?, ?> & ParameterizedJob> i
 
         for (ParameterDefinition parameterDefinition : getParameterDefinitions()) {
             BuildParameter buildParameter = new BuildParameter(parameterDefinition.getName(), parameterDefinition.getDescription());
-            if (parameterDefinition.getClass().isAssignableFrom(PasswordParameterDefinition.class)) {
+            if (parameterDefinition instanceof PasswordParameterDefinition) {
                 buildParameter.setType(BuildParameterType.PASSWORD);
-            } else if (parameterDefinition.getClass().isAssignableFrom(BooleanParameterDefinition.class)) {
+            } else if (parameterDefinition instanceof BooleanParameterDefinition) {
                 buildParameter.setType(BuildParameterType.BOOLEAN);
-            } else if (parameterDefinition.getClass().isAssignableFrom(ChoiceParameterDefinition.class)) {
+            } else if (parameterDefinition instanceof ChoiceParameterDefinition) {
                 buildParameter.setType(BuildParameterType.CHOICE);
                 buildParameter.setChoices(((ChoiceParameterDefinition) parameterDefinition).getChoices());
-            } else if (parameterDefinition.getClass().isAssignableFrom(StringParameterDefinition.class)) {
+            } else if (parameterDefinition instanceof StringParameterDefinition) {
                 buildParameter.setType(BuildParameterType.STRING);
-            } else if (parameterDefinition.getClass().isAssignableFrom(TextParameterDefinition.class)) {
+            } else if (parameterDefinition instanceof TextParameterDefinition) {
                 buildParameter.setType(BuildParameterType.TEXT);
+            } else if (parameterDefinition instanceof FileParameterDefinition) {
+                buildParameter.setType(BuildParameterType.FILE);
             } else {
                 // default to string
                 buildParameter.setType(BuildParameterType.STRING);
             }
 
             try {
-                buildParameter.setValue(getParameterDefinitionValue(parameterDefinition));
-            } catch (IllegalArgumentException ignored) {
-                // If a value was provided that does not match available options, leave the value blank.
+                ParameterValue paramValue = getParameterDefinitionValue(parameterDefinition);
+                if (paramValue != null && !(paramValue instanceof FileParameterValue)) {
+                    buildParameter.setValue(paramValue);
+                }
+            } catch (RuntimeException ignored) {
+                // Ignore invalid or unsupported request-derived values so the form still renders.
             }
 
             buildParameters.add(buildParameter);
@@ -113,17 +120,22 @@ public class BuildWithParametersAction<T extends Job<?, ?> & ParameterizedJob> i
             for (ParameterDefinition parameterDefinition : getParameterDefinitions()) {
                 ParameterValue parameterValue = parameterDefinition.createValue(req);
                 if (parameterValue != null) {
-                    if (parameterValue.getClass().isAssignableFrom(BooleanParameterValue.class)) {
+                    if (parameterValue instanceof BooleanParameterValue) {
                         boolean value = (req.getParameter(parameterDefinition.getName()) != null);
                         parameterValue = ((BooleanParameterDefinition) parameterDefinition).createValue(String.valueOf(value));
-                    } else if (parameterValue.getClass().isAssignableFrom(PasswordParameterValue.class)) {
+                    } else if (parameterValue instanceof PasswordParameterValue) {
                         parameterValue = applyDefaultPassword((PasswordParameterDefinition) parameterDefinition,
                                                                 (PasswordParameterValue) parameterValue);
+                    } else if (parameterValue instanceof FileParameterValue) {
+                        // File parameters are automatically handled by Jenkins
+                        // The file is extracted from the request and stored in the build workspace
                     }
                 }
                 // This will throw an exception if the provided value is not a valid option for the parameter.
                 // This is the desired behavior, as we want to ensure valid submissions.
-                values.add(parameterValue);
+                if (parameterValue != null) {
+                    values.add(parameterValue);
+                }
             }
         }
 

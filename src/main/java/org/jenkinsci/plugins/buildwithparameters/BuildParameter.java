@@ -1,6 +1,7 @@
 package org.jenkinsci.plugins.buildwithparameters;
 
 import hudson.model.BooleanParameterValue;
+import hudson.model.FileParameterValue;
 import hudson.model.ParameterValue;
 import hudson.model.PasswordParameterValue;
 import hudson.model.StringParameterValue;
@@ -41,7 +42,11 @@ public class BuildParameter {
     }
 
     public void setValue(ParameterValue parameterValue) {
-        if (parameterValue instanceof TextParameterValue) {
+        if (parameterValue instanceof FileParameterValue) {
+            // File parameters don't have a meaningful value to display in the form.
+            // Files are stored directly in the build workspace.
+            this.value = null;
+        } else if (parameterValue instanceof TextParameterValue) {
             this.value = ((TextParameterValue) parameterValue).getValue();
         } else if (parameterValue instanceof StringParameterValue) {
             this.value = ((StringParameterValue) parameterValue).getValue();
